@@ -35,6 +35,22 @@ Receive window we use: 2.5-5.5 ms LOW = 0, 6.5-9.5 ms LOW = 1, any edge gap over
 
 Bit convention note: the values here match [kellerman/vevor_pwm](https://github.com/kellerman/vevor_pwm). The notes in [alxkalb/vevor-8kw-diesel-heater-esphome](https://github.com/alxkalb/vevor-8kw-diesel-heater-esphome) read the pulses the other way round, so every value there is bit-inverted compared to this page (their `0x8CC9` is our `0x7336`).
 
+[sashko2000/diesel-heater-esphome](https://github.com/sashko2000/diesel-heater-esphome/blob/main/docs/protocol.md) is a third independent decode of this same bus (a VEVOR with the 5-button LCD) and also reads the bits inverted. Their table lines up with ours exactly once you flip it:
+
+| sashko2000 | this page | meaning |
+|------------|-----------|---------|
+| `A6` | `0x59` | heartbeat / status request |
+| `A2` | `0x5D` | power |
+| `A3` | `0x5C` | level up |
+| `A4` | `0x5B` | level down |
+| `AF` | `0x50` | chamber temperature request |
+| `AB` | `0x54` | **unknown** - they saw the heater answer `A00C` (our `0x5FF3`). Not tried here yet. |
+| `600D` idle, `6Cxx` running, `xxC0` purge | `0x9FF2`, `0x93xx`, `0xxx3F` | status words, same layout as below |
+
+So this protocol is not one heater's oddity: at least three of us have found it on heaters sold under different names (ours is badged Ethovia, theirs VEVOR). If your 3-wire LCD has levels 1-6 and a 433 MHz icon, it is probably this bus.
+
+**What this bus can't do.** The display only ever sends 8 bits, and five of the 256 values are spoken for. There is no room in a frame for "pump 1.4 Hz" or "fan 1500 RPM", so the pump / fan tuning that the 25000-baud Afterburner-style controllers carry in every frame (min/max pump Hz, min/max fan RPM, altitude) does not cross this wire. On these heaters the level tables appear to live in the heater's own board. If you find a hidden menu on your display, put a logic analyzer on the blue wire while you change a value - if nothing new appears, the setting never left the display.
+
 ## What the display sends
 
 | Byte | Meaning |
@@ -106,6 +122,14 @@ On our heater, from pressing ON to the glow plug switching off with the pump run
 
 Straight lines between the points work well. Outside 34-200 °C we extrapolate and mark the reading as approximate.
 
+If you'd rather not calibrate, sashko2000 fitted a closed-form thermistor curve on their heater. Their raw count is the bit-inverse of ours, so with `r = 4095 - raw`:
+
+```
+T[K] = 4055.85 / ( ln(1023 / r - 1) + 12.0813 )        T[°C] = T[K] - 273.15
+```
+
+Run against our 7 calibration points it reads 2-4 °C low across the range (6 °C at the 160 °C point), and their own fit error is about 2 °C, so the two sensors are the same part. The table above is the better choice if you have an OEM display to read; the formula is good enough for "is the chamber hot enough" logic with no calibration at all.
+
 The heater did not answer the chamber request during the CLEARING phase right after a stop (the OEM display won't show chamber temperature then either).
 
 ### Fault word `0x7???`
@@ -132,4 +156,6 @@ The bus simulator in `tools/bus_sim` replays these timings and checks for collis
 - Flags bit 1.
 - The full E-code table (only E-08 is backed by a capture, and that one is borrowed).
 - Whether the red wire is battery voltage or a regulated supply on every model.
+- `0x54` (sashko2000's `AB`) - the one display byte seen on this bus that nobody has explained. The heater answers it.
+- Whether anything on this bus can change the pump / fan tuning. We think not (see the bit convention note above).
 - What other display bytes do. The bridge prints `REQ xx -> yyyy` the first time it sees a new byte, so walking through the OEM menus with it attached is an easy way to find them.

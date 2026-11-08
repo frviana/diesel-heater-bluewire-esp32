@@ -12,7 +12,12 @@ Phone control and live status for a cheap Chinese diesel air heater - the kind w
 - **Stats**: this run, how long it took to light, run time today, total hours, number of starts. Saved through power cuts.
 - **Graph** of chamber temperature for the last hour.
 - **Alerts**: fault, flame-out (glow plug coming back on mid-run, or the chamber dropping fast), slow ignition, not warming up, low / high battery.
-- **Three page styles** you pick from a dropdown: a burner cutaway, an OEM-style 7-segment LCD, and a car-cluster gauge. °C / °F.
+- **Room sensor + auto modes** (DHT22): *Thermostat* holds a room setpoint by finding the power level that holds it ("smooth hold" - eases down on the way up, then trims one level at a time, remembers the level that worked); *Frost guard* starts at a low temperature, runs low, shuts off. Guard rails on everything: minimum run and rest times, max starts per hour, cold-night idle, no starts without a room reading. Every rail has its own switch.
+- **Chamber guard**: if the chamber sits under a floor (default 120 °C) while lit it adds a level, so a low burn doesn't coke the heater.
+- **Master shut-off**: room over 75 °F for a minute → heater off, in every mode. A long Manual run gets asked "keep it running?" and stops if nobody answers.
+- **History page**: 24 h / 7 d / 30 d / year - run time by level, starts, light-up times, room low/high, shut-offs and faults. Kept on the ESP32's flash through power cuts.
+- **Black box** (`/diag`): why it last restarted, uptime, lowest free memory, WiFi signal, last web request; watches its own loop and web server and restarts itself if they hang. An ESP32 restart never touches the heater.
+- **Three page styles** you pick from a dropdown: a burner cutaway, an OEM-style 7-segment LCD, and a car-cluster gauge. °C / °F. Home-screen icon and web manifest, so "Add to home screen" looks right.
 - **RGB LED light show** on boards that have one on GPIO16: heartbeat when idle, flickering flame that grows with the level, glow-plug throb, cooling glow, red fault flashes.
 - **Over-the-air updates** for the ESP32, mDNS (`http://heater.local`), and a fallback WiFi hotspot.
 
@@ -37,11 +42,14 @@ The protocol itself is written up in **[docs/PROTOCOL.md](docs/PROTOCOL.md)** - 
 - ESP32 dev board (WROOM). Ours has an RGB LED on GPIO16 - if yours doesn't, set `LED_MAX` to 0.
 - Arduino Nano (ATmega328P, 5 V).
 - One 10 kΩ and one 20 kΩ resistor (the Nano's 5 V TX into the ESP32's 3.3 V RX).
+- DHT22 / AM2302 room sensor (optional, needed for the auto modes). Adafruit's "DHT sensor library" + "Adafruit Unified Sensor" from the Library Manager.
 - Jumper wires. A 5 V supply for the ESP32: USB battery bank, USB car adapter, or a 12 V → 5 V converter.
 
 ## Wiring
 
 ![Wiring](docs/images/wiring.png)
+
+Printable sheets: [serial divider](docs/images/wiring_divider.png) · [DHT22](docs/images/wiring_dht22.png)
 
 | From | To |
 |------|----|
@@ -52,13 +60,14 @@ The protocol itself is written up in **[docs/PROTOCOL.md](docs/PROTOCOL.md)** - 
 | Nano **D2** | heater **blue** wire |
 | Nano **GND** | heater **black** wire |
 | heater **red** | not connected |
+| DHT22 **+** → ESP32 **3.3V**, **−** → **GND**, **data** → **GPIO32** | 3.3 V, not 5 V. A bare 4-pin sensor needs 10 kΩ from data to 3.3 V. |
 
 ESP32 pins are not 5 V tolerant, hence the divider on the Nano's TX. The ESP32's 3.3 V TX into the Nano's RX is fine as is.
 
 ## Setup
 
 1. **Nano**: open `firmware/heater_bridge_nano`, board *Arduino Nano*, processor *ATmega328P (Old Bootloader)* for most clones. **Unplug the wire on the Nano's RX pin while uploading**, then put it back. Serial Monitor at 115200 should say `HEATER BRIDGE v1.2 ready`. You can type `STATUS`, `ON`, `OFF`, `UP`, `DOWN`, `LEVEL 4` there to test it on its own.
-2. **ESP32**: open `firmware/heater_web_esp32`, put your WiFi name and password in `WIFI_SSID` / `WIFI_PASS`, board *ESP32 Dev Module* (ESP32 core 3.x, no extra libraries). Upload. The Serial Monitor (115200) prints the IP.
+2. **ESP32**: open `firmware/heater_web_esp32`, put your WiFi name and password in `WIFI_SSID` / `WIFI_PASS`, board *ESP32 Dev Module* (ESP32 core 3.x; the only libraries are Adafruit's DHT pair). Partition scheme with room for LittleFS (the default 4 MB scheme is fine) - the history and the black box live there. Upload. The Serial Monitor (115200) prints the IP.
 3. **Phone**: open that IP, or `http://heater.local`. If WiFi fails, the ESP32 makes its own hotspot `HeaterCtl` / `heater123` at `http://192.168.4.1`.
 
 After the first upload, the ESP32 updates over WiFi: *Tools > Port > heater*. On Windows, set the WiFi network to Private and allow `espota.exe` through the firewall, or the upload sits at "No response from device".
@@ -81,6 +90,10 @@ The pages use a small JSON API you can use too:
 | `GET /api/cmd?c=level&n=1..6` | step to a level |
 | `GET /api/cmd?c=chamber&n=0..60` | chamber poll interval in seconds (0 = off) |
 | `GET /api/unit?u=C\|F`, `/api/theme?t=burner\|lcd\|dash` | saved settings |
+| `GET /api/auto?mode=manual\|thermo\|frost` | pick the mode; add any of `sp ease onBand offBand frostOn frostOff frostLvl minRun minOff coldRest mtMin thSmooth` to change a setting |
+| `GET /api/keep?...` | answer the "keep it running?" prompt |
+| `GET /api/hist?...` | history data behind `/history` |
+| `GET /diag` | the black box log |
 
 ## Light show
 
@@ -90,7 +103,11 @@ The pages use a small JSON API you can use too:
 
 ```
 firmware/heater_bridge_nano/   Nano bus bridge
-firmware/heater_web_esp32/     ESP32 web controller (web_*.h are generated pages, led_show.h is the LED engine)
+firmware/heater_web_esp32/     ESP32 web controller
+    thermostat.h / safety.h / chamber_guard.h   auto modes, master shut-off, chamber floor
+    histlog.h / diag.h / dht22.h                history on LittleFS, black box, room sensor
+    web_*.h                                     generated pages (don't edit - see web_src)
+    led_show.h                                  the LED engine
 web_src/                       page sources - edit these, then run build_pages.py to regenerate web_*.h
 tools/bus_sim/                 PC simulation of the bus (display + heater + bridge) to check timing changes
 docs/                          protocol write-up and pictures
@@ -102,12 +119,13 @@ This is a fuel-burning appliance. This project only sends the same button presse
 
 ## Still to do
 
-- Room temperature sensor and a thermostat mode (ease the level down near the setpoint, minimum run time so the heater doesn't short-cycle).
+- Try display byte `0x54` and see what the heater's answer means (see PROTOCOL.md).
 - A single-board version: ESP32 straight on the blue wire through a BSS138 level shifter, no Nano.
 
 ## Credits
 
 - [kellerman/vevor_pwm](https://github.com/kellerman/vevor_pwm) - an ESPHome take on the same pulse protocol; our bit values match theirs.
+- [sashko2000/diesel-heater-esphome](https://github.com/sashko2000/diesel-heater-esphome) - a third independent decode of this bus, with a closed-form thermistor curve that agrees with our calibration table (details in PROTOCOL.md).
 - [alxkalb/vevor-8kw-diesel-heater-esphome](https://github.com/alxkalb/vevor-8kw-diesel-heater-esphome) - their notes pointed us to the standby voltage, the phase flags and the fault words (they read the bits inverted).
 - [zatakon/vevor_heater_control issue #7](https://github.com/zatakon/vevor_heater_control/issues/7) - the useful heads-up that the blue-LCD 3-wire controllers are not the 4800-baud UART kind.
 

@@ -5,7 +5,7 @@
 //  power-up ........ quick rainbow spin
 //  WiFi searching .. blue radar ping, once a second
 //  hotspot mode .... slow purple breathing
-//  idle + WiFi OK .. dim green heartbeat (lub-dub)
+//  idle + WiFi OK .. dim green heartbeat (lub-dub); ice blue when an auto mode is armed
 //  no Nano data .... red double blink
 //  heater silent ... slow amber pulse
 //  starting / fan .. cool-white spin-up flutter
@@ -37,6 +37,7 @@ struct LedIn {
     uint8_t  alert = 0;         // 0 none, 1 warn, 2 bad
     uint32_t flashMs = 0;       // time of the last command (0 = none)
     uint32_t bootMs = 0;        // time the ESP32 started
+    bool     armed = false;     // thermostat / frost guard is on
 };
 
 struct LedRGB { float r, g, b; };   // 0..1, before brightness cap and gamma
@@ -97,7 +98,8 @@ LedRGB ledCompute(const LedIn &in, uint32_t ms) {
         // idle: heartbeat (green on WiFi, purple on the hotspot)
         uint32_t t = ms % 1500;
         float k = 0.30f * lpulse((int32_t)t, 120) + 0.22f * lpulse((int32_t)t - 260, 150);
-        c = lscale(in.wifi == 2 ? PURPLE : GREEN, k);
+        const LedRGB ICE = {0.25f, 0.75f, 1.0f};
+        c = lscale(in.wifi == 2 ? PURPLE : (in.armed ? ICE : GREEN), k);
     } else {
         float lv = in.level < 1 ? 1 : (in.level > 6 ? 6 : in.level);
         switch (in.phase) {

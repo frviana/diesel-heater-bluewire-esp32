@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1b222c"/><stop offset="1" stop-color="#0d1117"/></linearGradient>
+    <linearGradient id="fl" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="#ff4d1f"/><stop offset="0.55" stop-color="#ff8c32"/><stop offset="1" stop-color="#ffc56b"/></linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.62" r="0.42"><stop offset="0" stop-color="#ff8c32" stop-opacity="0.35"/><stop offset="1" stop-color="#ff8c32" stop-opacity="0"/></radialGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#bg)"/>
+  <g transform="translate(256 270) scale(0.9) translate(-256 -270)">
+  <circle cx="256" cy="300" r="200" fill="url(#glow)"/>
+  <path d="M256 108 C 298 176 366 214 366 304 C 366 368 318 410 256 410 C 194 410 146 368 146 304 C 146 250 178 224 196 186 C 202 230 222 252 240 258 C 232 204 238 154 256 108 Z" fill="url(#fl)"/>
+  <path d="M256 262 C 282 292 304 310 304 342 C 304 370 283 390 256 390 C 229 390 208 370 208 342 C 208 316 226 302 234 286 C 239 306 248 314 257 316 C 252 296 251 279 256 262 Z" fill="#ffe7b3"/>
+  <rect x="166" y="424" width="180" height="20" rx="10" fill="#3a4452"/>
+  </g>
+</svg>

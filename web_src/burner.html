@@ -1,6 +1,10 @@
 <!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Shed Heater</title>
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<meta name="theme-color" content="#0d1117">
 <style>
 :root{--bg:#0d1117;--panel:#161c24;--line:#2a323d;--acc:#ff8c32;--accFg:#1a0b00;--gLine:#ffb347;--gRun:#ff8c32;--gCool:#4aa8e8}
 .trow{display:flex;justify-content:space-between;align-items:flex-end;gap:8px}
@@ -175,5 +179,5 @@ function draw(j,d){
  var ks=$('lvl').children;for(var i=0;i<ks.length;i++)ks[i].className=d.run&&d.level==i+1?'sel':'';
 }
 </script>
-<script src="/core.js?v=14"></script>
+<script src="/core.js?v=195"></script>
 </body></html>

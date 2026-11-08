@@ -1,6 +1,10 @@
 <!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Shed Heater</title>
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<meta name="theme-color" content="#08090b">
 <style>
 :root{--bg:#08090b;--panel:#15181d;--line:#2b2f36;--acc:#29d3ff;--accFg:#00141c;--logBg:#040506;--logFg:#7dffb0;--gLine:#ff2d78;--gRun:#ff8a1f;--gCool:#29d3ff;--grid:#1d2127}
 .ln{fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
@@ -131,5 +135,5 @@ function draw(j,d){
  var ks=$('keys').children;for(i=0;i<ks.length;i++)ks[i].className=d.run&&d.level==i+1?'sel':'';
 }
 </script>
-<script src="/core.js?v=14"></script>
+<script src="/core.js?v=195"></script>
 </body></html>

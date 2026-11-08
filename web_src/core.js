@@ -1,4 +1,4 @@
-/* Shed Heater page core v1.4 - shared by every page style (burner / lcd / dash).
+/* Shed Heater page core v1.9.4 - shared by every page style (burner / lcd / dash). Adds room sensor + auto modes.
    Each style page defines draw(j,d) and has #hdr, #alert and #common placeholders. */
 (function(){
 var W=window,doc=document;
@@ -29,6 +29,9 @@ var css=':root{--bg:#0d1117;--panel:#161c24;--line:#2a323d;--fg:#e8edf2;--fg2:#c
 '.c-seg button.sel{background:var(--acc);color:var(--accFg)}'+
 '.c-alert{display:none;gap:10px;align-items:flex-start;border-radius:12px;padding:10px 12px;font-size:14px;font-weight:600;line-height:1.35;border:1px solid}'+
 '.c-alert svg{flex:none;margin-top:1px}'+
+'.c-alert .c-atx{flex:1}'+
+'.c-keep{display:none;flex:none;align-self:center;border:0;border-radius:9px;padding:8px 12px;font:800 14px system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--warn);color:#1a1200;cursor:pointer}'+
+'.c-note{font-size:12px;color:var(--dim)}.c-note b{color:var(--fg2)}'+
 '.c-alert.warn{display:flex;background:var(--warnBg);border-color:var(--warn);color:var(--warnFg)}'+
 '.c-alert.bad{display:flex;background:var(--badBg);border-color:var(--bad);color:var(--badFg)}'+
 '.c-common{display:flex;flex-direction:column;gap:12px}'+
@@ -47,8 +50,37 @@ var css=':root{--bg:#0d1117;--panel:#161c24;--line:#2a323d;--fg:#e8edf2;--fg2:#c
 '.g-tip{font:700 11px system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;fill:var(--fg)}.g-empty{font:600 12px system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;fill:var(--dim)}'+
 '.c-leg{display:flex;gap:12px;align-items:center;margin-top:6px;font-size:11px;color:var(--dim)}'+
 '.c-leg i{display:inline-block;width:12px;height:5px;border-radius:2px;margin-right:4px;vertical-align:middle}'+
+'.c-btn.c-hist{display:flex;align-items:center;justify-content:center;box-sizing:border-box;text-decoration:none;font-weight:700;color:var(--acc)}'+
 '.c-btn{height:40px;border-radius:10px;border:1px solid var(--line);background:var(--panel);color:var(--fg2);font-size:13px;cursor:pointer;width:100%}'+
 '.c-log{background:var(--logBg);border:1px solid var(--line);border-radius:12px;padding:10px 12px;font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-size:12px;line-height:1.45;color:var(--logFg);white-space:pre-wrap;max-height:180px;overflow-y:auto}'+
+'.c-th{display:flex;flex-direction:column;gap:10px}'+
+'.c-thh{display:flex;justify-content:space-between;align-items:flex-end;gap:8px}'+
+'.c-k{display:block;font-size:11px;font-weight:700;letter-spacing:.1em;color:var(--dim);text-transform:uppercase}'+
+'.c-room{font-size:34px;font-weight:800;line-height:1.05;font-variant-numeric:tabular-nums;color:var(--fg)}'+
+'.c-room small{font-size:16px;font-weight:700;color:var(--dim);margin-left:2px}'+
+'.c-rh{font-size:13px;font-weight:700;color:var(--dim);text-align:right}'+
+'.c-mode{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}'+
+'.c-mode button{padding:9px 4px;font-size:13px}'+
+'.c-mode button.arm{background:var(--warn);color:#1a1200}'+
+'.c-tmsg{font-size:13px;font-weight:600;color:var(--fg2);min-height:17px}'+
+'.c-tset{display:flex;flex-direction:column;gap:8px}'+
+'.c-row{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:14px;color:var(--fg2)}'+
+'.c-row small{display:block;font-size:11px;color:var(--dim)}'+
+'.c-step{display:flex;align-items:center;gap:6px}'+
+'.c-step button{width:38px;height:36px;border-radius:9px;border:1px solid var(--line);background:var(--bg);color:var(--fg);font-size:20px;font-weight:700;cursor:pointer;padding:0}'+
+'.c-step b{min-width:64px;text-align:center;font-size:18px;font-variant-numeric:tabular-nums;color:var(--fg)}'+
+'.c-more summary{cursor:pointer;font-size:13px;font-weight:700;color:var(--dim);padding:4px 0}'+
+'.c-more[open] summary{margin-bottom:8px}'+
+'.c-tog{-webkit-appearance:none;appearance:none;flex:none;width:46px;height:28px;margin:0;border-radius:14px;background:var(--line);position:relative;cursor:pointer;transition:background .15s}'+
+'.c-tog::before{content:"";position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:var(--fg2);transition:transform .15s,background .15s}'+
+'.c-tog:checked{background:var(--acc)}.c-tog:checked::before{transform:translateX(18px);background:#fff}'+
+'.c-tog:focus-visible{outline:2px solid var(--acc);outline-offset:2px}'+
+'.c-sh{font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);border-top:1px solid var(--line);padding-top:8px;margin-top:2px}'+
+'.c-row.dis{opacity:.45}'+
+'.c-hiv{font-size:18px;color:var(--fg)}'+
+'#rGraph{width:100%;height:auto;display:block;margin-top:4px}'+
+'.g-sp{stroke:var(--acc);stroke-width:1.5;stroke-dasharray:5 4}.g-spl{font:700 10px system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;fill:var(--acc)}'+
+'.g-room{fill:none;stroke:var(--fg2);stroke-width:2;stroke-linejoin:round;stroke-linecap:round}'+
 '@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}';
 var st=doc.createElement('style');st.textContent=css;doc.head.insertBefore(st,doc.head.firstChild);
 
@@ -61,9 +93,48 @@ function build(){
   '</div></div><div class="c-sub" id="cSub">connecting...</div>';
  var a=$('alert');
  if(a){a.className='c-alert';a.setAttribute('role','status');
-  a.innerHTML='<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 3L22 20H2Z M12 9v5 M12 17.2v.1" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg><span id="cAlertT"></span>';}
+  a.innerHTML='<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 3L22 20H2Z M12 9v5 M12 17.2v.1" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg><span id="cAlertT" class="c-atx"></span><button id="cKeep" class="c-keep">Keep running</button>';}
  var c=$('common');
  if(c){c.className='c-common';c.innerHTML=
+  '<div class="c-card c-th">'+
+  '<div class="c-thh"><div><span class="c-k">Room</span><div class="c-room" id="tRoom">--</div></div><div class="c-rh" id="tRh"></div></div>'+
+  '<div class="c-seg c-mode" id="tMode"><button data-m="manual">Manual</button><button data-m="thermo">Thermostat</button><button data-m="frost">Frost guard</button></div>'+
+  '<div class="c-tmsg" id="tMsg"></div>'+
+  '<div class="c-tmsg" id="tGuard" style="opacity:.75"></div>'+
+  '<div class="c-tset" id="tThermo">'+stepRow('sp','Hold the room at','')+'</div>'+
+  '<div class="c-tset" id="tFrost">'+stepRow('frostOn','Start when it drops to','')+stepRow('frostOff','Run until it reaches','then shut off')+stepRow('frostLvl','Run at level','low and long is easiest on the heater')+'</div>'+
+  '<details class="c-more"><summary>More settings</summary><div class="c-tset">'+
+   '<div class="c-tset" id="mThermo"><div class="c-sh">Thermostat</div>'+
+    togRow('thStart','Start the heater on its own','when the room cools to the restart point')+
+    stepRow('onBand','Restart when this far','below the setpoint')+
+    togRow('thFull','Full power to warm up','level 6 until close, then it steps down')+
+    stepRow('ease','Full power until within','of the setpoint')+
+    togRow('thSmooth','Smooth hold','eases in, then finds the level that holds the room')+
+    togRow('shutoff','Shut off when warm','otherwise it idles at level 1')+
+    stepRow('offBand','Shut off when this far','above the setpoint (5 min at idle)')+
+   '</div>'+
+   '<div class="c-tset" id="mFrost"><div class="c-sh">Frost guard</div>'+
+    togRow('frBoost','Boost if it keeps dropping','level 5 when it falls well below the start temp')+
+    togRow('frIdle','Idle on cold nights','if it needs to restart soon after a stop, it idles at level 1 instead of cycling')+
+    stepRow('coldRest','Cold night if it restarts within','of the last stop')+
+   '</div>'+
+   '<div class="c-tset"><div class="c-sh">Both modes</div>'+
+    togRow('dispManual','Heater display takes over','STOP on the heater\'s own display switches to Manual')+
+    stepRow('minRun','Minimum run','before an auto stop')+stepRow('minOff','Minimum rest','before an auto restart')+
+   '</div>'+
+   '<div class="c-tset"><div class="c-sh">Chamber guard (every mode, Manual too)</div>'+
+    togRow('chGuard','Keep the chamber hot','adds up to 2 levels if the chamber runs cold for 3 min while lit - stops it coking up')+
+    stepRow('chFloor','Chamber floor','raise a level below this')+
+   '</div>'+
+   '<div class="c-tset"><div class="c-sh">Safety</div>'+
+    '<div class="c-row"><span>Master shut-off<small id="tHiSub">heater off in every mode; no starts until it cools</small></span><b id="tHiV" class="c-hiv">--</b></div>'+
+    togRow('mtOn','Keep-running check (Manual)','asks if you still need it, shuts off 15 min later if nobody answers')+
+    stepRow('mtMin','Ask after','of running in Manual')+
+   '</div>'+
+
+  '</div></details>'+
+  '<div><div class="c-gh"><span>Room &middot; last hour</span><b id="rNow"></b></div><svg id="rGraph" viewBox="0 0 340 110" role="img" aria-label="Room temperature over the last hour"></svg></div>'+
+  '</div>'+
   '<div class="c-stats">'+
   '<div class="c-st"><span>Idle volts</span><b id="sV">--</b></div>'+
   '<div class="c-st"><span>This run</span><b id="sRun">--</b></div>'+
@@ -71,6 +142,7 @@ function build(){
   '<div class="c-st"><span id="sTodayL">Today</span><b id="sToday">--</b></div>'+
   '<div class="c-st"><span>Total</span><b id="sTot">--</b></div>'+
   '<div class="c-st"><span>Starts</span><b id="sStarts">--</b></div></div>'+
+  '<a class="c-btn c-hist" href="/history">History &middot; run time by hour, day and month &rsaquo;</a>'+
   '<div class="c-card"><div class="c-gh"><span>Chamber &middot; last hour</span><b id="gPeak"></b></div>'+
   '<svg id="cGraph" viewBox="0 0 340 124" role="img" aria-label="Chamber temperature over the last hour"></svg>'+
   '<div class="c-leg"><span><i style="background:var(--gRun)"></i>Running</span><span><i style="background:var(--gCool)"></i>Cooling</span><span><i style="background:var(--bad)"></i>Fault</span></div></div>'+
@@ -79,6 +151,11 @@ function build(){
  if($('uC')){$('uC').onclick=function(){setUnit('C')};$('uF').onclick=function(){setUnit('F')};}
  if($('cTheme'))$('cTheme').onchange=function(){setTheme(this.value)};
  if($('cPoll'))$('cPoll').onclick=function(){cyclePoll()};
+ if($('cKeep'))$('cKeep').onclick=function(){this.style.display='none';fetch('/api/keep').then(function(){setTimeout(tick,300)}).catch(function(){})};
+ var tm=$('tMode');
+ if(tm)[].forEach.call(tm.children,function(b){b.onclick=function(){modeTap(b.getAttribute('data-m'))}});
+ [].forEach.call(doc.querySelectorAll('.c-step button'),function(b){b.onclick=function(){stepTap(b.getAttribute('data-k'),+b.getAttribute('data-d'))}});
+ [].forEach.call(doc.querySelectorAll('.c-tog'),function(b){b.onchange=function(){var k=b.getAttribute('data-t');H.tog[k]=[b.checked,Date.now()+4000];renderTh();sendAuto(k+'='+(b.checked?1:0))}});
  var g=$('cGraph');
  if(g){g.addEventListener('pointermove',hover);g.addEventListener('pointerdown',hover);g.addEventListener('pointerleave',function(){hover(null)});}
 }
@@ -134,15 +211,121 @@ function derive(j){
 }
 W.derive=derive;
 
+// ---- room sensor + auto modes ----
+var SPMAX=21.11;   // 70 F - matches SP_MAX_C on the ESP32
+var TS={sp:['abs',0,SPMAX],frostOn:['abs',-20,15],frostOff:['abs',-15,SPMAX],frostLvl:['lvl',1,6],mtMin:['min',60,720,30],chFloor:['cha',60,200],
+ ease:['dlt',0.5,10],onBand:['dlt',0.3,5],offBand:['dlt',0.3,6],minRun:['min',10,180],minOff:['min',5,120],coldRest:['min',30,360,15]};
+// toggle -> the setting rows it controls (dimmed when it's off)
+var TOG={thStart:['onBand'],thFull:['ease'],thSmooth:[],shutoff:['offBand'],frBoost:[],frIdle:['coldRest'],dispManual:[],chGuard:['chFloor'],mtOn:['mtMin']};
+// settings live in three places in /api/status; the page treats them as one list
+function cfgAll(){var j=H.j||{},a=j.auto||{},sf=j.safe||{},o={};for(var k in a)o[k]=a[k];
+ if(sf.mtMin!==undefined){o.mtOn=sf.mtOn;o.mtMin=sf.mtMin}return o}
+H.pend={};H.pendT=null;H.armMode=null;H.armUntil=0;H.tog={};
+function togRow(k,label,sub){return '<div class="c-row"><span>'+label+(sub?'<small>'+sub+'</small>':'')+'</span><input type="checkbox" class="c-tog" data-t="'+k+'" id="g_'+k+'" aria-label="'+label+'"></div>'}
+function tval(k){var t=H.tog[k];if(t&&Date.now()<t[1])return t[0];return cfgAll()[k]}
+function stepRow(k,label,sub){return '<div class="c-row" id="r_'+k+'"><span>'+label+(sub?'<small>'+sub+'</small>':'')+'</span><div class="c-step"><button data-k="'+k+'" data-d="-1" aria-label="'+label+' down">&minus;</button><b id="v_'+k+'">--</b><button data-k="'+k+'" data-d="1" aria-label="'+label+' up">+</button></div></div>'}
+W.stepRow=stepRow;
+function isF(){return H.unit=='F'}
+function aval(k){return H.pend[k]!==undefined?H.pend[k]:cfgAll()[k]}
+function fmtV(k,v){
+ if(v===undefined||v===null)return '--';
+ var t=TS[k][0],F=isF();
+ if(t=='min'&&v>=120&&v%60==0)return v/60+' h';
+ if(t=='min'&&v>90)return Math.floor(v/60)+'h '+pad(v%60)+'m';
+ if(t=='abs')return F?Math.round(v*9/5+32)+'\u00b0':(Math.round(v*2)/2).toFixed(1)+'\u00b0';
+ if(t=='dlt')return F?Math.round(v*9/5)+'\u00b0':(Math.round(v*2)/2).toFixed(1)+'\u00b0';
+ if(t=='lvl')return 'L'+v;
+ if(t=='cha')return F?Math.round(v*9/5+32)+'\u00b0':Math.round(v)+'\u00b0';
+ return v+' min';
+}
+function stepTap(k,d){
+ var v=aval(k);if(v===undefined)return;
+ var t=TS[k][0],F=isF(),n;
+ if(t=='abs')n=F?((Math.round(v*9/5+32)+d)-32)*5/9:Math.round(v*2)/2+d*0.5;
+ else if(t=='dlt')n=F?(Math.round(v*9/5)+d)*5/9:Math.round(v*2)/2+d*0.5;
+ else if(t=='lvl')n=v+d;else if(t=='cha')n=Math.round(v/5)*5+d*5;else n=v+d*(TS[k][3]||5);
+ n=Math.max(TS[k][1],Math.min(TS[k][2],n));
+ if(t=='abs'||t=='dlt')n=Math.round(n*100)/100;
+ if(k=='frostOff'&&n<aval('frostOn')+1)n=aval('frostOn')+1;
+ if(k=='frostOn'&&n>aval('frostOff')-1)n=aval('frostOff')-1;
+ H.pend[k]=n;renderTh();
+ clearTimeout(H.pendT);H.pendT=setTimeout(flushPend,700);
+}
+function flushPend(){
+ var q=[];for(var k in H.pend)q.push(k+'='+H.pend[k]);
+ if(!q.length)return;
+ sendAuto(q.join('&'),function(){setTimeout(function(){H.pend={};},2500)});
+}
+function sendAuto(q,done){fetch('/api/auto?'+q).then(function(r){if(!r.ok)return r.text().then(function(t){$('tMsg').textContent=t})}).then(function(){if(done)done();setTimeout(tick,300)}).catch(function(){})}
+function modeTap(m){
+ var cur=(H.j&&H.j.auto&&H.j.auto.mode)||'manual';
+ if(m==cur)return;
+ if(m!='manual'&&!(H.armMode==m&&Date.now()<H.armUntil)){H.armMode=m;H.armUntil=Date.now()+3000;renderTh();setTimeout(renderTh,3100);return}
+ H.armMode=null;sendAuto('mode='+m);
+}
+function renderTh(){
+ var j=H.j;if(!j||!$('tRoom'))return;
+ var r=j.room||{},a=j.auto||{},F=isF(),u=F?'\u00b0F':'\u00b0C';
+ $('tRoom').innerHTML=r.t===null||r.t===undefined?'--':(F?Math.round(r.t*9/5+32):r.t.toFixed(1))+'<small>'+u+'</small>';
+ $('tRh').textContent=r.rh!==null&&r.rh!==undefined?Math.round(r.rh)+'% humidity':(r.reads?'sensor stopped answering':(r.fails>3?'no reading - check the sensor wiring (GPIO32)':'waiting for the room sensor'));
+ var mode=a.mode||'manual';
+ [].forEach.call($('tMode').children,function(b){var m=b.getAttribute('data-m'),arm=H.armMode==m&&Date.now()<H.armUntil;
+  b.className=(m==mode?'sel':'')+(arm?' arm':'');b.textContent=arm?'Tap to confirm':{manual:'Manual',thermo:'Thermostat',frost:'Frost guard'}[m]});
+ var sf=j.safe||{},tC=function(c){return c===undefined||c===null?'--':(F?Math.round(c*9/5+32):(Math.round(c*10)/10).toFixed(1))+u};
+ var msg=mode=='manual'?'You control the heater.':a.msg||'';
+ if(mode=='manual'&&sf.ask)msg='Waiting on you - tap Keep running or it shuts off in '+(Math.floor(sf.left/60)+1)+' min.';
+ else if(mode=='manual'&&sf.left>=0)msg+=' Keep-running check in '+dur(sf.left)+'.';
+ if(sf.hi)msg='Master shut-off holding - no starts until the room is under '+tC(sf.clear)+'.'+(mode=='manual'?'':' '+msg);
+ $('tMsg').textContent=H.armMode&&Date.now()<H.armUntil?'This lets the controller start the heater on its own.':msg;
+ if($('tHiV')){$('tHiV').textContent=tC(sf.limit);$('tHiSub').textContent='heater off in every mode, no starts until under '+tC(sf.clear)+(sf.hi?' - holding now':'')}
+
+ if($('tGuard'))$('tGuard').textContent=a.gMsg||'';
+ $('tThermo').style.display=mode=='thermo'?'':'none';
+ $('tFrost').style.display=mode=='frost'?'':'none';
+ for(var k in TS){var e=$('v_'+k);if(e)e.textContent=fmtV(k,aval(k))}
+ for(var g in TOG){var cb=$('g_'+g);if(!cb)continue;var on=tval(g);if(on!==undefined)cb.checked=!!on;
+  TOG[g].forEach(function(rk){var row=$('r_'+rk);if(row)row.classList.toggle('dis',on===false)})}
+ if($('mThermo')){$('mThermo').style.display=mode=='frost'?'none':'';$('mFrost').style.display=mode=='thermo'?'none':''}
+ $('rNow').textContent=r.t===null||r.t===undefined?'':(F?Math.round(r.t*9/5+32):r.t.toFixed(1))+u;
+}
+function niceStep(span){var c=[1,2,5,10,20];for(var i=0;i<c.length;i++)if(span/c[i]<=4)return c[i];return 50}
+function drawRoom(){
+ var g=$('rGraph');if(!g)return;
+ var h=H.hist,j=H.j,F=isF();
+ if(!h||!h.r){g.innerHTML='<text class="g-empty" x="170" y="58" text-anchor="middle">Waiting for room readings</text>';return}
+ var r=h.r,n=r.length,a=(j&&j.auto)||{},cv=function(c){return F?c*9/5+32:c};
+ var lines=[];if(a.mode=='thermo')lines.push(['set',a.sp]);if(a.mode=='frost'){lines.push(['start',a.frostOn]);lines.push(['stop',a.frostOff])}
+ var vals=[];r.forEach(function(v){if(v!==null)vals.push(cv(v))});
+ if(!vals.length){g.innerHTML='<text class="g-empty" x="170" y="58" text-anchor="middle">No room readings yet - they log every 15 s</text>';return}
+ var all=vals.concat(lines.map(function(l){return cv(l[1])}));
+ var lo=Math.min.apply(null,all),hi=Math.max.apply(null,all),minSpan=F?8:4;
+ if(hi-lo<minSpan){var m=(hi+lo)/2;lo=m-minSpan/2;hi=m+minSpan/2}
+ var step=niceStep(hi-lo);lo=Math.floor(lo/step)*step;hi=Math.ceil(hi/step)*step;
+ var x0=34,x1=334,y0=8,y1=88,o='';
+ function X(k){return x0+(x1-x0)*k/(n-1)}
+ function Y(v){return y1-(y1-y0)*(v-lo)/(hi-lo)}
+ for(var t=lo;t<=hi+0.001;t+=step){var y=Y(t).toFixed(1);o+='<line class="g-grid" x1="'+x0+'" x2="'+x1+'" y1="'+y+'" y2="'+y+'"/><text class="g-ax" x="'+(x0-6)+'" y="'+(+y+3.5)+'" text-anchor="end">'+Math.round(t)+'</text>'}
+ lines.forEach(function(l){var y=Y(cv(l[1])).toFixed(1);o+='<line class="g-sp" x1="'+x0+'" x2="'+x1+'" y1="'+y+'" y2="'+y+'"/><text class="g-spl" x="'+(x1-2)+'" y="'+(+y-4)+'" text-anchor="end">'+l[0]+' '+(F?Math.round(cv(l[1])):(Math.round(l[1]*2)/2).toFixed(1))+'\u00b0</text>'});
+ var seg=null,segs=[];
+ for(var i=0;i<n;i++){if(r[i]===null){seg=null;continue}if(!seg){seg=[];segs.push(seg)}seg.push(X(i).toFixed(1)+','+Y(cv(r[i])).toFixed(1))}
+ segs.forEach(function(sg){o+=sg.length>1?'<polyline class="g-room" points="'+sg.join(' ')+'"/>':'<circle class="g-dot" r="2.5" cx="'+sg[0].split(',')[0]+'" cy="'+sg[0].split(',')[1]+'"/>'});
+ o+='<text class="g-ax" x="'+x0+'" y="106">-60 min</text><text class="g-ax" x="'+((x0+x1)/2)+'" y="106" text-anchor="middle">-30</text><text class="g-ax" x="'+x1+'" y="106" text-anchor="end">now</text>';
+ g.innerHTML=o;
+}
+
 function render(){
+ if($('cSub')&&!H.fail)$('cSub').style.color='';
  if($('uC')){$('uC').className=H.unit=='C'?'sel':'';$('uF').className=H.unit=='F'?'sel':'';}
- if(H.gUnit!=H.unit)drawGraph();
+ if(H.gUnit!=H.unit){drawGraph();drawRoom()}
  var j=H.j;if(!j)return;
  var d=H.d=derive(j);
  if($('cSub'))$('cSub').textContent=(j.mode=='PB'?'piggyback':j.mode=='SA'?'standalone':'--')+' · '+j.ip+
-  (j.bridge&&j.bridge<12?' · Nano on bridge v1.1':'');
+  (j.bridge&&j.bridge<12?' · Nano on bridge v1.1':'')+
+  (j.room&&j.room.t!==null&&j.room.t!==undefined?' · room '+(isF()?Math.round(j.room.t*9/5+32)+'\u00b0F':j.room.t.toFixed(1)+'\u00b0C'):'');
+ renderTh();drawRoom();
  var a=$('alert');
- if(a){if(j.alert){a.className='c-alert '+(j.alertLvl=='bad'?'bad':'warn');$('cAlertT').textContent=j.alert}else a.className='c-alert'}
+ if(a){if(j.alert){a.className='c-alert '+(j.alertLvl=='bad'?'bad':'warn');$('cAlertT').textContent=j.alert}else a.className='c-alert';
+  if($('cKeep'))$('cKeep').style.display=(j.alert&&j.safe&&j.safe.ask)?'block':'none'}
  var s=j.stats||{};
  if($('sV')){
   var v=$('sV');
@@ -204,8 +387,10 @@ function hover(e){
  var t=$('gT');t.textContent=txt;var right=px>G.x1-110;t.setAttribute('x',right?px-6:px+6);t.setAttribute('text-anchor',right?'end':'start');
 }
 
-function tick(){fetch('/api/status').then(function(r){return r.json()}).then(function(j){H.j=j;if(Date.now()>H.unitHold&&j.unit)H.unit=j.unit;render()}).catch(function(){})}
-function hist(){fetch('/api/history').then(function(r){return r.json()}).then(function(h){H.hist=h;drawGraph()}).catch(function(){})}
+function tick(){var ac=W.AbortController?new AbortController():null,to=setTimeout(function(){if(ac)ac.abort()},6000);
+ fetch('/api/status',ac?{signal:ac.signal,cache:'no-store'}:{cache:'no-store'}).then(function(r){return r.json()}).then(function(j){clearTimeout(to);H.fail=0;H.j=j;if(Date.now()>H.unitHold&&j.unit)H.unit=j.unit;render()})
+ .catch(function(){clearTimeout(to);H.fail=(H.fail||0)+1;if(H.fail>=3&&$('cSub')){$('cSub').textContent='can\'t reach the controller - retrying ('+H.fail+')';$('cSub').style.color='var(--warn)'}})}
+function hist(){fetch('/api/history').then(function(r){return r.json()}).then(function(h){H.hist=h;drawGraph();drawRoom()}).catch(function(){})}
 W.tick=tick;
 build();render();tick();hist();
 setInterval(tick,2000);setInterval(hist,15000);
