@@ -201,7 +201,7 @@ function derive(j){
  d.ecodeStr=d.ecode>=0?'E-'+pad(d.ecode):'';
  var p=PH[ph]||PH.UNK;
  d.label=d.dead?d.dead:ph=='RUN'?'RUN · L'+d.level:(d.fault&&d.ecodeStr)?'FAULT '+d.ecodeStr:p[0];
- d.desc=d.dead?(j.stale?'No data from the Nano':'Heater not answering'):ph=='RUN'?'Burning at level '+d.level:
+ d.desc=d.dead?(j.stale?'No data from the blue-wire task':'Heater not answering'):ph=='RUN'?'Burning at level '+d.level:
   d.fault?(d.ecodeStr?'Fault '+d.ecodeStr+' · ':'')+(j.bridge>=12?'tap START to clear':'clear it on the heater display'):p[1];
  d.canClear=d.fault&&j.bridge>=12;
  d.action=d.dead?null:d.off?'on':d.run?'off':d.canClear?'on':null;

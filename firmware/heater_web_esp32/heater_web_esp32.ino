@@ -1,10 +1,9 @@
 /*
  * ============================================================================
- *  HEATER WEB CONTROLLER  -  ESP32 WROOM  -  v1.9.5  (Nov 5 2026)
+ *  HEATER WEB CONTROLLER  -  ESP32 WROOM  -  v2.0.0
  * ============================================================================
- *  Talks to the Nano bus bridge over Serial2 and serves a phone page.
- *  Pair with heater_bridge_nano_v12 (v1.1 still works - you just don't get
- *  idle volts, the exact phase names, or fault clearing).
+ *  Reads the heater blue-wire bus through a BSS138 and serves a phone page.
+ *  Protocol timing runs in a separate task with GPIO edge capture and RMT TX.
  *
  *  v1.9.5
  *   - SMOOTH HOLD for the thermostat (thermostat.h, thermoSmooth()). Before, it
@@ -161,10 +160,9 @@
  *  READMEs in the project folder.
  *
  *  WIRING
- *    GPIO4 (RX2) <- 10k/20k divider <- Nano TX     GPIO17 (TX2) -> Nano RX
+ *    GPIO27 <-> BSS138 LV1/HV1 <-> heater blue wire, common ground
  *    GPIO16 = the board's own RGB LED (leave nothing plugged into 16)
  *    GPIO32 <- DHT22 data   3.3V -> DHT22 +   GND -> DHT22 -
- *    5V -> Nano 5V               GND <-> Nano GND
  *
  *  SETUP
  *    1. Put your WiFi password in WIFI_PASS below - same one as before.
@@ -201,6 +199,7 @@
 #include "chamber_guard.h"
 #include "safety.h"
 #include "histlog.h"
+#include "bluewire.h"
 
 // ---------------- CONFIG ----------------
 const char* WIFI_SSID = "YOUR_WIFI_NAME";
@@ -209,12 +208,10 @@ const char* HOSTNAME  = "heater";
 const char* AP_SSID   = "HeaterCtl";
 const char* AP_PASS   = "heater123";
 const char* TZ_INFO   = "PST8PDT,M3.2.0,M11.1.0";   // Pacific, for "today" and log times
-#define NANO_RX_PIN 4        // was 16 - GPIO16 is the board's RGB LED
-#define NANO_TX_PIN 17
 #define RGB_PIN     16       // onboard RGB LED
 #define LED_MAX     160      // LED brightness cap 0-255 (0 = LED off)
 #define DHT_PIN     32       // DHT22 room sensor data
-#define FW_VER      "1.9.5"
+#define FW_VER      "2.0.0"
 // Stops an OTA upload that would leave the ESP32 unable to get back on WiFi.
 constexpr bool notSet(const char *s) { return !s[0] || (s[0]=='C' && s[1]=='H' && s[2]=='A' && s[3]=='N' && s[4]=='G' && s[5]=='E' && s[6]=='_' && s[7]=='M' && s[8]=='E'); }
 static_assert(!notSet(WIFI_PASS), "Put your WiFi password in WIFI_PASS near the top of the sketch");
@@ -258,12 +255,10 @@ float chamberC(int raw, bool &approx) {
 // ------------------------------------------------------
 
 WebServer server(80);
-HardwareSerial &nano = Serial2;
 Preferences prefs;
 bool unitF = false;               // page shows F instead of C (saved)
-int  pollPref = -1;               // chamber poll seconds the user picked (-1 = Nano's default)
+int  pollPref = -1;               // chamber poll seconds the user picked (-1 = bus default)
 String theme = "burner";          // saved page style
-unsigned long lastPollFixMs = 0;
 
 // ---- last status line from the bridge ----
 struct {
@@ -273,7 +268,6 @@ struct {
     unsigned long lastLineMs = 0;
 } S;
 
-uint32_t junkLines = 0;          // garbled lines from the Nano (boot noise is normal; a climbing count is not)
 
 bool linkStale()    { return S.lastLineMs == 0 || millis() - S.lastLineMs > 5000; }
 bool heaterLive()   { return !linkStale() && S.age <= 5; }
@@ -325,7 +319,7 @@ AutoState ast;
 AutoOut aout;
 unsigned long offSinceMs = 0;      // when the heater last went OFF (0 = not seen)
 unsigned long lastOffCmdMs = 0;    // last time WE sent OFF (page or auto) - tells our stops from the display's
-unsigned long autoEchoUntil = 0;   // hide the Nano's ACK LEVEL lines for auto level changes
+unsigned long autoEchoUntil = 0;   // hide bus ACK LEVEL lines for auto level changes
 unsigned long lastAutoMs = 0;
 GuardState gst;                    // chamber guard
 uint8_t gApplied = 0;              // levels the guard has added on top of the wanted level
@@ -547,7 +541,6 @@ void parseStatus(const String &l) {
         from = c + 1;
     }
     if (n < 10) return;
-    if (f[1] != "OFF" && f[1] != "RUN" && f[1] != "COOL" && f[1] != "FAULT" && f[1] != "UNK") { junkLines++; return; }
     String prev = S.state, prevPhase = S.phase; int prevLevel = S.level;
     // v1.9.1: one garbled reply on the bus shows up as UNK for a second or two (seen Nov 4:
     // RUN->UNK->RUN). Ride through it instead of treating it as a stop and a new start - that
@@ -575,40 +568,17 @@ void parseStatus(const String &l) {
     }
     S.lastLineMs = millis();
     onUpdate(prev, prevPhase, prevLevel);
-
-    // Nano restarted with its default poll? Put the user's choice back.
-    if (pollPref >= 0 && S.poll >= 0 && S.poll != pollPref && millis() - lastPollFixMs > 5000) {
-        lastPollFixMs = millis();
-        nano.println("CHAMBER " + String(pollPref));
-    }
 }
 
-String lineBuf;
-bool lineBad = false;
-
-bool knownLine(const String &l) {
-    return l.startsWith("EVT ") || l.startsWith("ACK") || l.startsWith("ERR") || l.startsWith("REQ ") ||
-           l.startsWith("MODE ") || l.startsWith("PONG") || l.startsWith("HEATER BRIDGE");
-}
-
-void pollNano() {
-    while (nano.available()) {
-        char c = nano.read();
-        if (c == '\n' || c == '\r') {
-            if (lineBuf.length() || lineBad) {
-                if (lineBad)                        { junkLines++; Serial.println("[nano junk] " + lineBuf); }
-                else if (lineBuf.startsWith("S,"))  parseStatus(lineBuf);
-                else if (lineBuf.startsWith("R,"))  Serial.println("[nano] " + lineBuf);   // raw frames: monitor only
-                else if (knownLine(lineBuf))        {
-                    Serial.println("[nano] " + lineBuf);
-                    bool autoEcho = lineBuf.startsWith("ACK LEVEL") && millis() < autoEchoUntil;
-                    if (!autoEcho) addLog(lineBuf);
-                }
-                else                                { junkLines++; Serial.println("[nano junk] " + lineBuf); }
-            }
-            lineBuf = ""; lineBad = false;
-        } else if (c < 0x20 || c > 0x7E) lineBad = true;     // the Nano only ever sends plain text
-        else if (lineBuf.length() < 120) lineBuf += c;
+void pollBlueWire() {
+    char line[120];
+    if (BlueWire::readStatus(line)) parseStatus(line);
+    while (BlueWire::readEvent(line)) {
+        Serial.print("[blue wire] ");
+        Serial.println(line);
+        if (strncmp(line, "R,", 2) == 0) continue;
+        const bool autoEcho = strncmp(line, "ACK LEVEL", 9) == 0 && millis() < autoEchoUntil;
+        if (!autoEcho) addLog(line);
     }
 }
 
@@ -747,8 +717,16 @@ void tickAuto() {
     autoStep(acfg, in, ast, aout, unitF);
     if (aout.log[0]) addLog(aout.log);
     switch (aout.cmd) {
-        case AC_ON:    nano.println("ON"); ledFlashMs = now ? now : 1; break;
-        case AC_OFF:   nano.println("OFF"); lastOffCmdMs = now; ledFlashMs = now ? now : 1; break;
+        case AC_ON:
+            if (BlueWire::command("ON")) ledFlashMs = now ? now : 1;
+            else addLog("ERR ON: blue-wire command queue unavailable");
+            break;
+        case AC_OFF:
+            if (BlueWire::command("OFF")) {
+                lastOffCmdMs = now;
+                ledFlashMs = now ? now : 1;
+            } else addLog("ERR OFF: blue-wire command queue unavailable");
+            break;
         default: break;
     }
 
@@ -761,8 +739,7 @@ void tickAuto() {
     if (gst.log[0]) addLog(gst.log);
     if (!lit) gApplied = 0;
     else if (S.level >= 1) {
-        if (want != S.level && now >= gNextSendMs) {
-            nano.println("LEVEL " + String(want));
+        if (want != S.level && now >= gNextSendMs && BlueWire::command("LEVEL " + String(want))) {
             autoEchoUntil = now + 30000UL; gOurUntil = now + 30000UL; gNextSendMs = now + 30000UL;
         }
         gApplied = want > base ? want - base : 0;
@@ -781,10 +758,11 @@ void tickSafety() {
     static bool hadTrip = false;
     safeStep(scfg, in, sst, o);
     if (o.sendOff) {
-        nano.println("OFF");
-        lastOffCmdMs = millis();
-        ledFlashMs = millis(); if (!ledFlashMs) ledFlashMs = 1;
-        addLog(o.evt == SE_MT_STOP ? "SAFE > OFF (no answer to keep-running)" : "SAFE > OFF (room over " + tF(HI_LIMIT_C) + ")");
+        if (BlueWire::command("OFF")) {
+            lastOffCmdMs = millis();
+            ledFlashMs = millis(); if (!ledFlashMs) ledFlashMs = 1;
+            addLog(o.evt == SE_MT_STOP ? "SAFE > OFF (no answer to keep-running)" : "SAFE > OFF (room over " + tF(HI_LIMIT_C) + ")");
+        } else addLog("ERR safety OFF: blue-wire command queue unavailable");
     }
     switch (o.evt) {
         case SE_HI_TRIP:  hadTrip = true; hlog.addHiTrip(); addLog("SAFE master shut-off: room " + tF(in.roomC)); break;
@@ -886,7 +864,7 @@ void handleStatus() {
     j += ",\"vage\":";     j += S.vage;
     j += ",\"ecode\":";    j += S.ecode;
     j += ",\"bridge\":";   j += S.bridge;
-    j += ",\"junk\":";     j += junkLines;
+    j += ",\"junk\":";     j += BlueWire::badFrames();
     j += ",\"unit\":\"";   j += unitF ? "F" : "C"; j += "\"";
     j += ",\"theme\":\"";  j += theme; j += "\"";
     j += ",\"poll\":";     j += S.poll;
@@ -1032,13 +1010,19 @@ void handleCmd() {
         int n = server.arg("n").toInt();
         if (n < 0 || n > 60) { server.send(400, "text/plain", "chamber 0-60"); return; }
         out = "CHAMBER " + String(n);
-        pollPref = n;
-        prefs.putInt("poll", n);
     }
     else { server.send(400, "text/plain", "unknown"); return; }
     if (c == "on" && sst.hiLatched && S.state != "RUN") {
         server.send(409, "text/plain", "Master shut-off: room over " + tF(HI_LIMIT_C) + " - no starts until it's under " + tF(HI_CLEAR_C));
         return;
+    }
+    if (!BlueWire::command(out)) {
+        server.send(503, "text/plain", "blue-wire command queue unavailable");
+        return;
+    }
+    if (c == "chamber") {
+        pollPref = server.arg("n").toInt();
+        prefs.putInt("poll", pollPref);
     }
     if (c == "off") lastOffCmdMs = millis();
     if (c == "level" || c == "up" || c == "down") {
@@ -1047,7 +1031,6 @@ void handleCmd() {
     }
     // STOP or a level change from the page takes over; START leaves the thermostat / frost guard in charge
     if (c != "chamber" && c != "on" && acfg.mode != AM_MANUAL) setMode(AM_MANUAL, "manual control from the page");
-    nano.println(out);
     addLog("> " + out);
     ledFlashMs = millis(); if (!ledFlashMs) ledFlashMs = 1;
     server.send(200, "text/plain", "sent " + out);
@@ -1123,17 +1106,20 @@ void handleTheme() {
 // ---------------- SETUP ----------------
 void setup() {
     Serial.begin(115200);
-    nano.begin(115200, SERIAL_8N1, NANO_RX_PIN, NANO_TX_PIN);
     delay(200);
     Serial.println("\nHEATER WEB v" FW_VER);
     ledBootMs = millis();
-    ledTick(true);
 
     for (uint16_t i = 0; i < HIST_N; i++) { histC[i] = INT16_MIN; histR[i] = INT16_MIN; histS[i] = '-'; }
 
     prefs.begin("heater", false);
     unitF      = prefs.getBool("unitF", false);
     pollPref   = prefs.getInt("poll", -1);
+    if (!BlueWire::begin(pollPref)) {
+        Serial.println("ERR could not initialize blue-wire bus on GPIO27");
+        addLog("ERR blue-wire bus initialization failed");
+    }
+    ledTick(true);
     theme      = prefs.getString("theme", "burner");
     totRunS    = prefs.getUInt("totRun", 0);
     starts     = prefs.getUInt("starts", 0);
@@ -1197,8 +1183,6 @@ void setup() {
     server.on("/api/keep", handleKeep);
     server.begin();
 
-    nano.println("PING");
-    if (pollPref >= 0) nano.println("CHAMBER " + String(pollPref));
     diagWatchdogOn();                              // last: from here a stuck loop restarts itself
 }
 
@@ -1206,7 +1190,7 @@ void loop() {
     diagLoopStart();
     diagStage(DS_WEB);  server.handleClient();
     diagStage(DS_OTA);  ArduinoOTA.handle();
-    diagStage(DS_NANO); pollNano();
+    diagStage(DS_BUS);  pollBlueWire();
     diagStage(DS_ROOM); room.tick();
     diagStage(DS_LED);  ledTick();
     static unsigned long lastTick = 0;

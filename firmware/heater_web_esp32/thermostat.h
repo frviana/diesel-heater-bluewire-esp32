@@ -71,7 +71,7 @@ struct AutoCfg {
 
 struct AutoIn {
     uint32_t now = 0;             // ms
-    bool     heaterLive = false;  // Nano link up and heater answering
+    bool     heaterLive = false;  // bus link up and heater answering
     char     st = 'U';            // 'O' off, 'R' run, 'C' cool, 'F' fault, 'U' unknown
     bool     lit = false;         // phase RUN (flame established)
     uint8_t  level = 0;

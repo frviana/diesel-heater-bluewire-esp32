@@ -28,9 +28,9 @@
 #include <esp_heap_caps.h>
 #include <vector>
 
-enum DiagStage : uint8_t { DS_NONE, DS_SETUP, DS_WEB, DS_OTA, DS_NANO, DS_ROOM, DS_LED, DS_STATS, DS_SAFETY,
+enum DiagStage : uint8_t { DS_NONE, DS_SETUP, DS_WEB, DS_OTA, DS_BUS, DS_ROOM, DS_LED, DS_STATS, DS_SAFETY,
                            DS_HIST, DS_ALERTS, DS_AUTO, DS_GRAPH, DS_DIAG, DS_IDLE };
-static const char *DS_NAME[] = { "?", "start-up", "web page", "OTA update", "Nano link", "room sensor", "LED",
+static const char *DS_NAME[] = { "?", "start-up", "web page", "OTA update", "blue-wire bus", "room sensor", "LED",
                                  "stats", "safety", "history", "alerts", "auto modes", "graph", "self-check", "idle" };
 enum DiagWhy : uint8_t { DW_NONE, DW_WEB, DW_WIFI, DW_OTA, DW_HOTSPOT };
 static const char *DW_NAME[] = { "", "web self-check failed 3x", "WiFi gone 10 min", "OTA update", "rejoined home WiFi" };

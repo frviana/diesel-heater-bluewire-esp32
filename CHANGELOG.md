@@ -1,6 +1,11 @@
 # Changelog
 
-Firmware versions are the ESP32 sketch's. The Nano bridge is v1.2 throughout.
+Firmware versions refer to the ESP32 sketch. Releases through v1.9.5 used Nano bridge v1.2.
+
+## v2.0.0
+- The ESP32 reads and writes the blue-wire bus on GPIO27 through a BSS138 level converter. A dedicated bus task handles GPIO pulse capture, RMT transmission, and OEM display coexistence.
+- The existing web pages, controls, automation, and status API now use the on-board bus task.
+- The chamber poll interval applies in both standalone and OEM display modes.
 
 ## v1.9.5 - 2026-11-05
 - Thermostat **smooth hold**: eases down on the way up to the setpoint, then trims one level at a time and learns the level that holds the room. Tuned on a two-node shed model fitted to a real warm-up; switch under More settings > Thermostat.
