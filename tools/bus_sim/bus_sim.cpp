@@ -4,7 +4,74 @@
 #include <algorithm>
 uint64_t simUs = 0;
 SerialMock Serial;
+#ifdef ESP32_BRIDGE
+#include "../../firmware/heater_web_esp32/bluewire_rx.h"
+
+namespace BlueWire {
+namespace {
+PulseCapture rx;
+auto &output = Serial;
+void captureEdge() { rx.edge(micros(), digitalRead(2)); }
+
+Frame takeFrame() {
+    if (rx.high && micros() - rx.lastEdge >= FRAME_GAP_US) rx.finish();
+    Frame frame = rx.pending;
+    rx.pending.bits = 0;
+    return frame;
+}
+
+bool takeCommand(char (&text)[24]) {
+    if (!Serial.available()) return false;
+    size_t len = 0;
+    while (Serial.available()) {
+        char c = Serial.read();
+        if (c == '\n') break;
+        if (len < sizeof(text) - 1) text[len++] = c;
+    }
+    text[len] = '\0';
+    return true;
+}
+
+void pullLow() {
+    digitalWrite(2, LOW);
+    pinMode(2, OUTPUT);
+}
+
+bool sendFrame(uint8_t byte) {
+    if (!rx.high || rx.active || rx.pending.bits || micros() - rx.lastEdge < FRAME_GAP_US ||
+        !digitalRead(2)) return false;
+
+    detachInterrupt(0);
+    delayMicroseconds(1);
+    pullLow();
+    delayMicroseconds(START_LOW_US);
+    for (uint8_t mask = 0x80; mask; mask >>= 1) {
+        const unsigned int low = (byte & mask) ? LONG_LOW_US : SHORT_LOW_US;
+        pinMode(2, INPUT_PULLUP);
+        delayMicroseconds(BIT_PERIOD_US - low);
+        pullLow();
+        delayMicroseconds(low);
+    }
+    pinMode(2, INPUT_PULLUP);
+    rx.lastEdge = micros();
+    rx.high = digitalRead(2);
+    attachInterrupt(0, captureEdge, CHANGE);
+    return true;
+}
+}
+}
+
+#include "../../firmware/heater_web_esp32/bluewire_bridge.h"
+
+void setup() {
+    attachInterrupt(0, BlueWire::captureEdge, CHANGE);
+    BlueWire::startBridge(-1);
+}
+
+void loop() { BlueWire::tickBridge(); }
+#else
 #include "../../firmware/heater_bridge_nano/heater_bridge_nano.ino"
+#endif
 
 enum { NANO = 0, LCDS = 1, HTR = 2 };
 static const char *srcName[] = {"NANO", "LCD ", "HTR "};
@@ -131,16 +198,17 @@ int main(int argc, char **argv) {
     char sc = argc > 1 ? argv[1][0] : 'A';
     uint64_t lcdOn = 0, lcdOff = UINT64_MAX; bool chamberPage = false;
     if (sc == 'B') chamberPage = true;
-    if (sc == 'C') lcdOn = UINT64_MAX;
+    if (sc == 'C' || sc == 'I' || sc == 'K') lcdOn = UINT64_MAX;
     if (sc == 'E') lcdOff = 20000000;
     // OEM display: one frame per second, fixed phase, does NOT check the bus
     bool alt = false;
     for (uint64_t t = 300000; t < 69000000; t += 1000000) {
         if (t < lcdOn || t >= lcdOff) continue;
         uint8_t b = 0x59; if (chamberPage) { b = alt ? 0x50 : 0x59; alt = !alt; }
+        if (sc == 'J' && t == 2300000) b = 0x5D;
         scheduleFrame(LCDS, t, b, 8);
     }
-    if (sc == 'D') cmds.push_back({1000000, "CHAMBER 0"});
+    if (sc == 'D' || sc == 'I') cmds.push_back({1000000, "CHAMBER 0"});
     if (sc == 'F') {   // start, run out of fuel at 20 s, clear with ON at 40 s
         faultAt = 20000000; quietStatus = false;
         cmds.push_back({6000000, "ON"}); cmds.push_back({30000000, "OFF"}); cmds.push_back({40000000, "ON"});
@@ -150,6 +218,10 @@ int main(int argc, char **argv) {
     } else if (sc == 'H') {   // full start + shutdown, print every status line for phases
         quietStatus = false; htr.volts = 13;
         cmds.push_back({3000000, "ON"}); cmds.push_back({22000000, "OFF"});
+    } else if (sc == 'J') {
+        cmds.push_back({2000000, "ON"});
+    } else if (sc == 'K') {
+        cmds.push_back({18000000, "ON"});
     } else {
     cmds.push_back({6000000, "ON"});
     cmds.push_back({14000000, "LEVEL 5"});
@@ -160,7 +232,16 @@ int main(int argc, char **argv) {
     cmds.push_back({46000000, "ON"});
     }
     setup();
-    while (simUs < 70000000) { if (sc == 'G' && simUs > 10000000) htr.mute = true; loop(); advanceTo(simUs + 50); }
+#ifdef ESP32_BRIDGE
+    constexpr uint64_t taskTickUs = 1000;
+#else
+    constexpr uint64_t taskTickUs = 50;
+#endif
+    while (simUs < 70000000) {
+        if ((sc == 'G' || sc == 'K') && simUs > 10000000) htr.mute = true;
+        loop();
+        advanceTo(simUs + taskTickUs);
+    }
     // ---- checks ----
     std::sort(frames.begin(), frames.end(), [](const Frame &a, const Frame &b) { return a.s < b.s; });
     int coll = 0; uint64_t minGap = UINT64_MAX;
@@ -181,5 +262,16 @@ int main(int argc, char **argv) {
     printf("\nSCENARIO %c: display frames %d (unanswered %d) | nano frames %d (chamber %d, commands %d, unanswered %d) | collisions %d | tightest gap %.1f ms\n",
            sc, lcdN, lcdNoReply, nanoN, nano50, nanoCmd, nanoNoReply, coll, minGap / 1000.0);
     printf("heater final: %s level %d\n", htr.state == 0 ? "OFF" : htr.state == 1 ? "RUN" : htr.state == 2 ? "COOL" : "FAULT", htr.level);
+#ifdef ESP32_BRIDGE
+    const bool expectedSilence = sc == 'G' || sc == 'K';
+    if (coll || (!expectedSilence && (lcdNoReply || nanoNoReply))) return 1;
+    if ((sc == 'D' || sc == 'I') && nano50) return 1;
+    if ((sc == 'A' || sc == 'B' || sc == 'C' || sc == 'D' || sc == 'E' || sc == 'I') &&
+        (htr.state != 0 || htr.level != 2 || nanoCmd != 9)) return 1;
+    if (sc == 'F' && htr.state != 1) return 1;
+    if (expectedSilence && nanoCmd) return 1;
+    if (sc == 'H' && (htr.state != 0 || nanoCmd != 2)) return 1;
+    if (sc == 'J' && (htr.state != 1 || nanoCmd)) return 1;
+#endif
     return 0;
 }

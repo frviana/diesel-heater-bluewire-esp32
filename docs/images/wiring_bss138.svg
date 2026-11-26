@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="414" viewBox="0 0 800 414" role="img" aria-labelledby="title desc">
+  <title id="title">ESP32-only blue-wire connection</title>
+  <desc id="desc">GPIO27 goes through a BSS138 module to the heater blue wire. LV gets 3.3 V and HV gets regulated 5 V. A 10 kΩ pull-up on each side connects its data line to its supply. All grounds are common.</desc>
+  <rect width="800" height="414" rx="16" fill="#f5f8fc"/>
+  <g font-family="system-ui, sans-serif" fill="#172638">
+    <text x="28" y="39" font-size="23" font-weight="700">ESP32 + BSS138 blue-wire connection</text>
+    <g fill="#fff" stroke="#a4b5c8" stroke-width="2">
+      <rect x="28" y="76" width="162" height="242" rx="10"/>
+      <rect x="248" y="76" width="304" height="242" rx="10"/>
+      <rect x="610" y="159" width="162" height="159" rx="10"/>
+    </g>
+    <g font-weight="700" font-size="17">
+      <text x="48" y="106">ESP32</text>
+      <text x="269" y="106">BSS138 module · one channel</text>
+      <text x="631" y="188">Heater harness</text>
+    </g>
+    <g font-size="14">
+      <text x="175" y="146" text-anchor="end">3V3</text>
+      <text x="175" y="253" text-anchor="end">GPIO27</text>
+      <text x="265" y="133">LV</text>
+      <text x="535" y="133" text-anchor="end">HV</text>
+      <text x="610" y="146">Regulated 5 V</text>
+      <text x="265" y="237">LV1</text>
+      <text x="535" y="237" text-anchor="end">HV1</text>
+      <text x="631" y="253">Blue · data</text>
+      <text x="631" y="306">Black · ground</text>
+      <text x="75" y="306">GND</text>
+      <text x="366" y="306">GND</text>
+      <text x="338" y="196">10 kΩ</text>
+      <text x="464" y="196">10 kΩ</text>
+      <text x="28" y="369">Pull-ups shown inside the module. Fit them externally if absent.</text>
+      <text x="28" y="391">Connect the regulated 5 V supply ground to the common ground.</text>
+    </g>
+    <g fill="none" stroke="#97500a" stroke-width="2.5" stroke-linejoin="round">
+      <path d="M190 141H322V175l-6 5 12 6-12 6 12 6-6 5V248"/>
+      <path d="M600 141H446V175l-6 5 12 6-12 6 12 6-6 5V248"/>
+    </g>
+    <g fill="none" stroke="#2266ae" stroke-width="3">
+      <path d="M190 248H365M435 248H610"/>
+      <rect x="365" y="232" width="70" height="32" rx="5"/>
+    </g>
+    <text x="400" y="252" text-anchor="middle" font-size="12">BSS138</text>
+    <g fill="#2266ae">
+      <circle cx="322" cy="248" r="4"/>
+      <circle cx="446" cy="248" r="4"/>
+    </g>
+    <path d="M109 318V340H691V318M400 318V340" fill="none" stroke="#45566b" stroke-width="2.5"/>
+    <circle cx="400" cy="340" r="4" fill="#45566b"/>
+  </g>
+</svg>

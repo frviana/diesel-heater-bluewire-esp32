@@ -1,6 +1,10 @@
-# Diesel heater blue-wire controller (ESP32 + Nano)
+# Diesel heater blue-wire controller (ESP32 + BSS138)
 
 Phone control and live status for a cheap Chinese diesel air heater - the kind with the simple LCD controller on a red / blue / black cable. It talks the heater's own single-wire protocol, works **alongside the original display** (or without it), and serves a web page from an ESP32 that any phone on your WiFi can open.
+
+Thanks to JR ([valleyprn-stack](https://github.com/valleyprn-stack)) for building the original controller and documenting the blue-wire protocol. [Original project](https://github.com/valleyprn-stack/diesel-heater-bluewire-esp32).
+
+**ESP32-only firmware v2.0.0.** The ESP32 runs both the blue-wire protocol and the web controller. A BSS138 bidirectional logic-level converter translates between the heater's 5 V blue-wire bus and the ESP32's 3.3 V GPIO. The port has passed simulated bus tests. Validation on a physical heater is pending.
 
 ![The three page styles](docs/images/page_styles.png)
 
@@ -25,50 +29,46 @@ Everything the pages need is built into the ESP32 - no internet, no app, no clou
 
 <img src="docs/images/page_states.png" alt="Fault, standby and preheat states" width="900">
 
-## How it works
+## How the ESP32-only design works
 
 ```
-phone --WiFi--> ESP32 (web page, stats, alerts) --serial 115200--> Arduino Nano --blue wire--> heater
-                                                                       ^
-                                                     original LCD display stays on the same wire
+Phone <-- Wi-Fi --> ESP32 <-- 3.3 V --> BSS138 <-- 5 V blue wire --> Heater
+                                                  |
+                                          Original LCD (optional)
 ```
 
-The **Nano** does the timing-critical bus work at the heater's native 5 V: it listens to every frame, decodes the status, and slips one command frame into the quiet gap after the heater answers the display. The **ESP32** does WiFi, the pages, history and alerts, and talks to the Nano with plain text lines.
-
-The protocol itself is written up in **[docs/PROTOCOL.md](docs/PROTOCOL.md)** - frame timing, commands, the status word, phases, supply voltage, chamber temperature calibration, fault codes, and the piggyback trick.
+The blue wire is a bidirectional, open-drain bus. Devices pull it low and release it so the pull-ups can restore the idle high level. A dedicated ESP32 task decodes the roughly 4 ms and 8 ms low pulses captured by the GPIO interrupt. The ESP32's RMT peripheral sends pulses on the same open-drain pin while Wi-Fi and the web UI run independently. With the LCD attached, the ESP32 sends commands in the quiet gap after the heater replies to the LCD. Without the LCD it sends its own heartbeat. See [the blue-wire protocol](docs/PROTOCOL.md) for frame timing and status decoding.
 
 ## Parts
 
-- ESP32 dev board (WROOM). Ours has an RGB LED on GPIO16 - if yours doesn't, set `LED_MAX` to 0.
-- Arduino Nano (ATmega328P, 5 V).
-- One 10 kΩ and one 20 kΩ resistor (the Nano's 5 V TX into the ESP32's 3.3 V RX).
-- DHT22 / AM2302 room sensor (optional, needed for the auto modes). Adafruit's "DHT sensor library" + "Adafruit Unified Sensor" from the Library Manager.
-- Jumper wires. A 5 V supply for the ESP32: USB battery bank, USB car adapter, or a 12 V → 5 V converter.
+- ESP32-WROOM dev board and a regulated 5 V supply, such as USB or a 12 V to 5 V converter.
+- BSS138 bidirectional logic-level converter module. One channel is enough.
+- Two **10 kΩ pull-up resistors** for a discrete BSS138 circuit or a module without onboard pull-ups. A module with 10 kΩ pull-ups on both sides already provides both resistors.
+- Jumper wires.
+- Optional DHT22 / AM2302 room sensor for auto modes. A bare four-pin DHT22 needs its own **10 kΩ** data pull-up to 3.3 V. Install Adafruit's DHT Sensor Library and Adafruit Unified Sensor for the ESP32 sketch.
 
-## Wiring
+## ESP32-only wiring
 
-![Wiring](docs/images/wiring.png)
+![ESP32 GPIO27 to the heater blue wire through a BSS138, with 10 kΩ pull-ups to 3.3 V and 5 V and a shared ground](docs/images/wiring_bss138.svg)
 
-Printable sheets: [serial divider](docs/images/wiring_divider.png) · [DHT22](docs/images/wiring_dht22.png)
+| Connection | Wiring |
+|------------|--------|
+| Low-side supply | ESP32 **3V3** → converter **LV** |
+| High-side supply | Regulated **5 V** → converter **HV** |
+| Low-side data | ESP32 **GPIO27** ↔ converter **LV1** |
+| High-side data | Converter **HV1** ↔ heater **blue** wire. The original LCD can stay connected to the same bus. |
+| Ground | Join ESP32 **GND**, converter **GND**, 5 V supply ground, and heater **black** wire. |
+| Heater red wire | Leave it on the original display harness. Keep it separate from the converter's regulated 5 V supply. |
+| Optional DHT22 | **+** → ESP32 **3V3**, **−** → **GND**, **data** → **GPIO32**. For a bare sensor, fit a **10 kΩ** resistor from data to **3V3**. |
 
-| From | To |
-|------|----|
-| ESP32 **5V** | Nano **5V** pin (a Nano that's short on power sends garbled serial - check this first if the page shows junk) |
-| ESP32 **GND** | Nano **GND** |
-| ESP32 **GPIO17** (TX2) | Nano **RX** (D0) |
-| Nano **TX** (D1) → **10 kΩ** → ESP32 **GPIO4** (RX2), with **20 kΩ** from GPIO4 to GND | about 3.3 V at the ESP32 pin |
-| Nano **D2** | heater **blue** wire |
-| Nano **GND** | heater **black** wire |
-| heater **red** | not connected |
-| DHT22 **+** → ESP32 **3.3V**, **−** → **GND**, **data** → **GPIO32** | 3.3 V, not 5 V. A bare 4-pin sensor needs 10 kΩ from data to 3.3 V. |
-
-ESP32 pins are not 5 V tolerant, hence the divider on the Nano's TX. The ESP32's 3.3 V TX into the Nano's RX is fine as is.
+Use one **10 kΩ** pull-up from **LV1 to 3V3** and one from **HV1 to regulated 5 V**. These resistors set the idle voltage on each side while allowing either end to pull the line low. This is the standard value on modules such as the [Adafruit BSS138 breakout](https://www.adafruit.com/product/757) and a starting value for the millisecond pulses on this bus. The heater and LCD can also contribute high-side pull-ups. Verify the idle levels and pulse edges on your heater before finalizing the circuit. The ESP32 GPIO must release the bus for a high level and drive it only to pull it low. For a discrete BSS138, connect the **gate to 3V3**, **source to LV1**, and **drain to HV1**. See [NXP application note AN10441](https://cdn-shop.adafruit.com/datasheets/AN10441.pdf).
 
 ## Setup
 
-1. **Nano**: open `firmware/heater_bridge_nano`, board *Arduino Nano*, processor *ATmega328P (Old Bootloader)* for most clones. **Unplug the wire on the Nano's RX pin while uploading**, then put it back. Serial Monitor at 115200 should say `HEATER BRIDGE v1.2 ready`. You can type `STATUS`, `ON`, `OFF`, `UP`, `DOWN`, `LEVEL 4` there to test it on its own.
-2. **ESP32**: open `firmware/heater_web_esp32`, put your WiFi name and password in `WIFI_SSID` / `WIFI_PASS`, board *ESP32 Dev Module* (ESP32 core 3.x; the only libraries are Adafruit's DHT pair). Partition scheme with room for LittleFS (the default 4 MB scheme is fine) - the history and the black box live there. Upload. The Serial Monitor (115200) prints the IP.
-3. **Phone**: open that IP, or `http://heater.local`. If WiFi fails, the ESP32 makes its own hotspot `HeaterCtl` / `heater123` at `http://192.168.4.1`.
+1. Wire the BSS138 and ESP32 as shown above. When upgrading from the original setup, disconnect the Nano from the blue-wire bus and remove the UART divider before connecting GPIO27 through the BSS138.
+2. In Arduino IDE, open `firmware/heater_web_esp32/heater_web_esp32.ino` and set `WIFI_SSID` and `WIFI_PASS`. Select *ESP32 Dev Module* with the Arduino ESP32 core 3.x and install the two Adafruit sensor libraries listed above. Use a partition scheme with OTA and room for LittleFS. The default 4 MB scheme works.
+3. Upload by USB. Open Serial Monitor at 115200 baud. It prints the IP address, followed by `[blue wire]` events when the bus task starts reporting.
+4. Open the IP address or `http://heater.local` on your phone. If joining Wi-Fi fails, connect to the `HeaterCtl` hotspot (password `heater123`) and open `http://192.168.4.1`.
 
 After the first upload, the ESP32 updates over WiFi: *Tools > Port > heater*. On Windows, set the WiFi network to Private and allow `espota.exe` through the firewall, or the upload sits at "No response from device".
 
@@ -76,7 +76,7 @@ After the first upload, the ESP32 updates over WiFi: *Tools > Port > heater*. On
 
 The heater reports a raw count, not degrees. `CAL[]` in the ESP32 sketch maps it to °C using readings taken off the OEM display's own chamber screen. If your heater's numbers differ, swap in your own pairs.
 
-The OEM display only asks for chamber temperature while you're on its chamber screen, so the Nano asks for it itself every 5 s while the heater runs or cools (button on the page: 5 s / 30 s / off).
+The OEM display only asks for chamber temperature while you're on its chamber screen, so the ESP32 polls it every 5 s while the heater runs or cools (button on the page: 5 s / 30 s / off).
 
 ## API
 
@@ -102,8 +102,9 @@ The pages use a small JSON API you can use too:
 ## Repo layout
 
 ```
-firmware/heater_bridge_nano/   Nano bus bridge
-firmware/heater_web_esp32/     ESP32 web controller
+firmware/heater_bridge_nano/   Original Nano bus bridge, kept for reference and simulation
+firmware/heater_web_esp32/     ESP32 blue-wire and web controller
+    bluewire.cpp / bluewire*.h                  GPIO capture, RMT transmission and bus scheduling
     thermostat.h / safety.h / chamber_guard.h   auto modes, master shut-off, chamber floor
     histlog.h / diag.h / dht22.h                history on LittleFS, black box, room sensor
     web_*.h                                     generated pages (don't edit - see web_src)
@@ -120,7 +121,7 @@ This is a fuel-burning appliance. This project only sends the same button presse
 ## Still to do
 
 - Try display byte `0x54` and see what the heater's answer means (see PROTOCOL.md).
-- A single-board version: ESP32 straight on the blue wire through a BSS138 level shifter, no Nano.
+- Verify GPIO27 timing, OEM display coexistence, and standalone operation on a physical heater.
 
 ## Credits
 
@@ -129,4 +130,4 @@ This is a fuel-burning appliance. This project only sends the same button presse
 - [alxkalb/vevor-8kw-diesel-heater-esphome](https://github.com/alxkalb/vevor-8kw-diesel-heater-esphome) - their notes pointed us to the standby voltage, the phase flags and the fault words (they read the bits inverted).
 - [zatakon/vevor_heater_control issue #7](https://github.com/zatakon/vevor_heater_control/issues/7) - the useful heads-up that the blue-LCD 3-wire controllers are not the 4800-baud UART kind.
 
-Built by JR ([valleyprn-stack](https://github.com/valleyprn-stack)) with Claude. MIT license.
+Original project built by JR (valleyprn-stack) with Claude. MIT license.
